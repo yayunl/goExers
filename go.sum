@@ -1,3 +1,7 @@
+github.com/cloverstd/tcping v0.1.1 h1:3Yp9nvSDI7Z63zoVQDJzVk1PUczrF9tJoOrKGV30iOk=
+github.com/cloverstd/tcping v0.1.1/go.mod h1:NYXTrTDwlwuOKQ0vwksUVUbIr0sxDDsf1J6aFpScCBo=
+github.com/cloverstd/tcping v0.1.2-0.20220904024552-a3e9e7d5d7d0 h1:fTxmhloeeDeak/shSmCr/UysTqcL8dUVcq64S94EXTU=
+github.com/cloverstd/tcping v0.1.2-0.20220904024552-a3e9e7d5d7d0/go.mod h1:tbN747j0WQbGu1DmwJ7vkDdg0yVXXdaXyEJfxgirfZE=
 github.com/tatsushid/go-fastping v0.0.0-20160109021039-d7bb493dee3e h1:nt2877sKfojlHCTOBXbpWjBkuWKritFaGIfgQwbQUls=
 github.com/tatsushid/go-fastping v0.0.0-20160109021039-d7bb493dee3e/go.mod h1:B4+Kq1u5FlULTjFSM707Q6e/cOHFv0z/6QRoxubDIQ8=
 golang.org/x/net v0.1.0 h1:hZ/3BUoy5aId7sCpA/Tc5lt8DkFgdVS2onTpJsZ/fl0=
