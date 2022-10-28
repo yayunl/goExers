@@ -20,9 +20,10 @@ import (
 )
 
 type response struct {
-	ipAddr *net.IPAddr
-	active bool
-	rtt    time.Duration
+	ipAddr   *net.IPAddr
+	active   bool
+	rtt      time.Duration
+	pingType string
 }
 
 type String string
@@ -47,19 +48,36 @@ func tcpHttpPing(ipAddr, pingPort, interval, timeout string, pingAttempts int) (
 		return
 	}
 
+	// Port stuff
+	var defaultPort string
+	var proto string
+
+	switch pingPort {
+	case "":
+		defaultPort = "80"
+		proto = "http"
+
+	case "443":
+		proto = "https"
+
+	default:
+		proto = "http"
+		defaultPort = "80"
+	}
+
+	//if pingPort != "" {
+	//	defaultPort = pingPort
+	//} else {
+	//	defaultPort = "80"
+	//	proto = "http"
+	//}
 	// URL stuff
-	site := fmt.Sprintf("http://%s", ipAddr)
+
+	site := fmt.Sprintf("%s://%s", proto, ipAddr)
 	url, err := ping.ParseAddress(site)
 	if err != nil {
 		fmt.Printf("%s is an invalid target.\n", site)
 		return
-	}
-
-	var defaultPort string
-	if pingPort != "" {
-		defaultPort = pingPort
-	} else {
-		defaultPort = "80"
 	}
 
 	if port := url.Port(); port != "" {
@@ -110,6 +128,11 @@ func tcpHttpPing(ipAddr, pingPort, interval, timeout string, pingAttempts int) (
 	return false, avgTime
 }
 
+const ICMP = "icmp/port 22"
+const HTTP = "http/port 80"
+const HTTPS = "https/port 443"
+const RDP = "RDP/port 3389"
+
 var (
 	fastPing = func(ipAddrs []any) patterns.Result {
 		// create a new pinger
@@ -137,18 +160,42 @@ var (
 
 		p.OnRecv = func(addr *net.IPAddr, t time.Duration) {
 			//fmt.Println("received")
-			*resp = response{ipAddr: addr, rtt: t, active: true}
+			*resp = response{ipAddr: addr, rtt: t, active: true, pingType: ICMP}
 		}
 
 		err = p.Run()
 		p.Stop()
 
 		// Attempt http ping if icmp failed
+
 		if !resp.active {
-			active, avgTime := tcpHttpPing(ipAddrStr, "80", "1ms", "1s", 2)
-			resp = &response{ipAddr: ra, rtt: avgTime, active: active}
-			return patterns.Result{Value: resp, Err: nil, JobID: ipAddrs[0]}
+			// Try http ping
+			httpActive, httpAvgTime := tcpHttpPing(ipAddrStr, "80", "1ms", "1s", 1)
+
+			if httpActive {
+				resp = &response{ipAddr: ra, rtt: httpAvgTime, active: true, pingType: HTTP}
+				return patterns.Result{Value: resp, Err: nil, JobID: ipAddrs[0]}
+			} else {
+				// Try https ping
+				httpsActive, httpsAvgTime := tcpHttpPing(ipAddrStr, "443", "1ms", "1s", 1)
+				if httpsActive {
+					resp = &response{ipAddr: ra, rtt: httpsAvgTime, active: httpsActive, pingType: HTTPS}
+					return patterns.Result{Value: resp, Err: nil, JobID: ipAddrs[0]}
+				}
+				// Try RDP ping
+				rdpActive, rdpAvgTime := tcpHttpPing(ipAddrStr, "3389", "1ms", "1s", 1)
+				if rdpActive {
+					resp = &response{ipAddr: ra, rtt: rdpAvgTime, active: httpsActive, pingType: RDP}
+					return patterns.Result{Value: resp, Err: nil, JobID: ipAddrs[0]}
+				}
+
+				// ICMP, HTTP, RDP and HTTP pings fail
+				return patterns.Result{Value: resp, Err: nil, JobID: ipAddrs[0]}
+			}
+
 		}
+
+		//ICMP ping success
 		return patterns.Result{Value: resp, Err: nil, JobID: ipAddrs[0]}
 
 	}
@@ -192,22 +239,23 @@ func creatTasks(ips []string) []patterns.Job {
 	return tasks
 }
 
-func sortIPs(ips []string) []net.IP {
-	realIPs := []net.IP{}
+func sortResponses(ips []*response) []*response {
+	//realIPs := []net.IP{}
+	//
+	//for _, ip := range ips {
+	//	realIPs = append(realIPs, net.ParseIP(ip))
+	//}
 
-	for _, ip := range ips {
-		realIPs = append(realIPs, net.ParseIP(ip))
-	}
-
-	sort.Slice(realIPs, func(i, j int) bool {
-		return bytes.Compare(realIPs[i], realIPs[j]) < 0
+	sort.Slice(ips, func(i, j int) bool {
+		return bytes.Compare(net.ParseIP(fmt.Sprintf("%s", ips[i].ipAddr)),
+			net.ParseIP(fmt.Sprintf("%s", ips[j].ipAddr))) < 0
 	})
 
 	//for _, ip := range realIPs {
 	//	fmt.Printf("%s\n", ip)
 	//}
 
-	return realIPs
+	return ips
 }
 
 func FastPinger(ips []string, maxWorkers int) {
@@ -243,20 +291,20 @@ func FastPinger(ips []string, maxWorkers int) {
 		return activeResultStream
 	}
 	// Gather active IPs and sort them
-	activeIPs := []string{}
+	var activeResponses []*response
 	for resp := range activeEPs(results) {
-		activeIPs = append(activeIPs, fmt.Sprintf("%v", resp.ipAddr))
+		activeResponses = append(activeResponses, resp)
 	}
-	sortedIPs := sortIPs(activeIPs)
+	sortedActiveResps := sortResponses(activeResponses)
 
 	// reporting
 	fmt.Println("Scanned IPs: ", len(ips))
-	fmt.Printf("Oneline IPs: %d (%.2f%%) \n", len(activeIPs), float32(len(activeIPs))/float32(len(ips))*100)
+	fmt.Printf("Alive IPs: %d (%.2f%%) \n", len(sortedActiveResps), float32(len(sortedActiveResps))/float32(len(ips))*100)
 
 	fmt.Println("Time elapsed: ", time.Since(start))
-	fmt.Println("Active IP Addresses:")
-	for i, ip := range sortedIPs {
+	fmt.Println("Alive IP Addresses:")
+	for i, ip := range sortedActiveResps {
 		i += 1
-		fmt.Printf("#%d:\t %s\n", i, ip)
+		fmt.Printf("#%d:\t %s (%s)\n", i, ip.ipAddr, ip.pingType)
 	}
 }
